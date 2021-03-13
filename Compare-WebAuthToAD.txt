@@ -1,0 +1,23 @@
+$csv = Import-Csv "path/to/file.csv"
+# $csv | % { $_.Description }
+
+$ADUsers = Get-ADUser -Filter * -Properties *
+$Report = @()
+
+foreach($line IN $csv){
+	$Match = $ADUsers | Where-Object {$_.SamAccountName -eq $line.ID}
+	
+	if($Match.mail -ne $line.EMail -OR $Match.Description -ne $line.Description){
+		Write-Output "$($line.ID) DOES NOT MATCH....$($line.EMail), AD: $($Match.mail)`r`n$($line.Description), AD: $($Match.Description)"
+		$Report += [pscustomobject]@{
+			"ID" = $line.ID
+			"Email" = $line.Email
+			"Description" = $line.Description
+			"ADEmail" = $Match.mail
+			"ADDescription" = $Match.Description
+		}
+	}
+	else {
+		Write-Output "$($line.ID) is good!"
+	}
+}

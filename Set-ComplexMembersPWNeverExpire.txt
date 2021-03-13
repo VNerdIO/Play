@@ -1,0 +1,50 @@
+<#
+	To account for 90 day password policy and the 365 day password policy we need to disable password expiration for the 365 day password expiration.
+	reference: https://docs.microsoft.com/en-us/microsoft-365/admin/add-users/set-password-to-never-expire?view=o365-worldwide
+	C2026696
+#>
+Start-Transcript "Transcript.log"
+Register-TVAPSGallery -Verbose
+<#
+# Pulls in the latest version of these modules
+$ModParams = @{
+	'ModuleName'	= @(
+		'AutomationLogging'
+	)
+	'ModulePath'	= 'D:\CloudAutomation\Modules'
+	'Verbose'		= $True
+}
+Import-TVAModule AutomationLogging, AzureAD
+#>
+$env:PSModulePath = $env:PSModulePath + ';D:\CloudAutomation\Modules'
+Import-Module AutomationLogging, AzureAD
+$LogFile = "\\main.tva.gov\Share\IT\IAC\Logs\Azure\AzureAD\Set-ComplexMembersPWNeverExpires.log"
+
+# Pulls in the required credentials and connects
+$Credential = Get-PSCredential -Username "AzureAutoAdmin@tva.gov" -FilePath "\\main.tva.gov\Share\IT\IAC\Credential\CloudAdmins\AzureAutoAdmin.txt"
+Connect-AzureAD -Credential $Credential
+
+$Members = Get-ADGroupMember NF-UserAccountsComplexity
+$Users = $Members | Get-ADUser
+$NotEnabled = @()
+
+# Get Users who do not have PasswordNeverExpires set
+$Users | % {
+	 $NotEnabled += Get-AzureADUser -ObjectId $_.UserprincipalName | Select-Object UserprincipalName,@{N="PasswordNeverExpires";E={$_.PasswordPolicies -contains "DisablePasswordExpiration"}} | Where-Object PasswordNeverExpires -eq $false
+}
+
+if($NotEnabled.Count -eq 0){ Write-Log -Message "No accounts to set DisablePasswordExpiration" -Level "Info" -Path $LogFile }
+# DisablePasswordExpiration
+$NotEnabled | % {
+	try{
+		Write-Verbose "Setting $($_.UserprincipalName) password policy to DisablePasswordExpiration"
+		Write-Log -Message "Setting $($_.UserprincipalName) password policy to DisablePasswordExpiration" -Level "Info" -Path $LogFile
+		Set-AzureADUser -ObjectId $_.UserprincipalName -PasswordPolicies DisablePasswordExpiration
+	}
+	catch{
+		Write-Error "Unable to set $($_.UserprincipalName) password policy to DisablePasswordExpiration: $($_)"
+		Write-Log -Message "Unable to set $($_.UserprincipalName) password policy to DisablePasswordExpiration: $($_)" -Level "Error" -Path $LogFile
+	}
+}
+
+Stop-Transcript
